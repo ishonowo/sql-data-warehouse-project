@@ -1,0 +1,60 @@
+CREATE VIEW gold.report_customers AS
+WITH base_table AS
+(SELECT
+f.order_number,
+f.product_key,
+f.order_date,
+f.sales_amount,
+f.quantity,
+c.customer_key,
+c.customer_number,
+c.first_name + ' ' +
+c.last_name AS customer_name,
+DATEDIFF(year,c.birthdate,GETDATE()) AS age
+FROM gold.fact_sales f
+LEFT JOIN gold.dim_customers c
+ON f.customer_key=c.customer_key
+WHERE order_date IS NOT NULL)
+,
+customer_aggregations AS
+(SELECT
+customer_key,
+customer_number,
+customer_name,
+age,
+COUNT(DISTINCT order_number) AS total_orders,
+SUM(sales_amount) AS total_sales,
+SUM(quantity) AS total_quantity,
+COUNT(product_key) AS total_products,
+MAX(order_date) AS last_order_date,
+DATEDIFF(MONTH,MIN(order_date),MAX(order_date)) AS lifespan
+FROM base_table
+GROUP BY customer_key,customer_number,customer_name,age)
+
+SELECT
+customer_key,customer_number,customer_name,age,
+CASE
+	WHEN age <21 THEN 'UNDER 21'
+	WHEN age BETWEEN 21 AND 30 THEN '21-30'
+	WHEN age BETWEEN 31 AND 40 THEN '31-40'
+	WHEN age BETWEEN 41 AND 50 THEN '41-50'
+	ELSE 'Above 51'
+END AS age_group,
+CASE 
+	WHEN lifespan >= 12 AND total_sales > 5000 THEN 'VIP'
+	WHEN lifespan >= 12 AND total_sales <= 5000 THEN 'Regular'
+	ELSE 'New'
+END AS customer_segment,
+DATEDIFF(MONTH,last_order_date,GETDATE()) AS order_recency,
+total_orders,total_sales,
+--Compute average order value
+CASE WHEN total_orders=0 THEN 0
+	 ELSE total_sales/total_orders
+END AS avg_order_value,
+--Compute avg monthly spend
+CASE WHEN lifespan=0 THEN total_sales
+	 ELSE total_sales/lifespan
+END AS avg_monthly_spend,
+total_quantity,total_products,
+last_order_date,lifespan
+FROM customer_aggregations
