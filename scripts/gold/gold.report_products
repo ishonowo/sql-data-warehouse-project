@@ -1,0 +1,55 @@
+CREATE VIEW gold.report_products AS
+WITH base_table AS
+(SELECT
+f.order_number,
+f.product_key,
+f.order_date,
+f.sales_amount,
+f.quantity,
+f.customer_key,
+p.cost,
+p.product_name,
+p.category,
+p.subcategory
+FROM gold.fact_sales f
+LEFT JOIN gold.dim_products p
+ON f.product_key=p.product_key
+WHERE order_date IS NOT NULL)
+,
+product_aggregations AS
+(SELECT
+product_key,
+product_name,
+category,
+subcategory,
+MAX(order_date) AS last_order_date,
+COUNT(DISTINCT order_number) AS total_orders,
+DATEDIFF(MONTH,MIN(order_date),MAX(order_date)) AS lifespan,
+SUM(sales_amount) AS total_sales,
+SUM(quantity) AS total_quantity_sold,
+COUNT( DISTINCT(customer_key)) AS total_customers,
+SUM((sales_amount-cost)*quantity) AS revenue
+FROM base_table
+GROUP BY product_key,product_name,category,subcategory)
+--SELECT MIN(revenue), MAX(revenue) FROM product_aggregations
+
+
+SELECT
+product_key,product_name,category,subcategory,
+total_orders,total_sales,total_quantity_sold,
+total_customers,lifespan,revenue,
+CASE
+	WHEN revenue<= 10000 THEN 'Low-Performers'
+	WHEN revenue BETWEEN 10001 AND 50000 THEN 'Mid-Range'
+	ELSE 'HIGH-Performers'
+END AS product_performance,
+DATEDIFF(MONTH,last_order_date,GETDATE()) AS recency,
+CASE
+	WHEN total_orders=0 THEN 0
+	ELSE revenue/total_orders
+END AS average_order_revenue,
+CASE
+	WHEN lifespan=0 THEN total_sales
+	ELSE total_sales/lifespan
+END AS average_monthly_revenue
+FROM product_aggregations
